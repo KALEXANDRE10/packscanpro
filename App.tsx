@@ -201,6 +201,7 @@ const App: React.FC = () => {
         const { data: existing } = await supabase.from('product_entries').select('id').eq('cnpj_raiz', extractedRaiz).limit(1);
         if (existing && existing.length > 0) isNewProspect = false;
       }
+      // Fix: Use camelCase properties from ExtractedData (tipoEmbalagem instead of tipo_embalagem)
       const { error } = await supabase.from('product_entries').insert({
         list_id: currentListId, inspector_id: currentUser.id, photos,
         razao_social: extracted.razaoSocial, cnpj: extracted.cnpj, cnpj_raiz: extractedRaiz,
