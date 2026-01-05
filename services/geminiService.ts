@@ -3,36 +3,40 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { ExtractedData } from "../types";
 
 export async function extractDataFromPhotos(photos: string[]): Promise<ExtractedData> {
-  const apiKey = process.env.API_KEY;
+  console.log("Iniciando extração com Gemini 3 Flash... Fotos recebidas:", photos.length);
   
+  const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    console.error("CRITICAL: API_KEY is undefined in process.env");
-    throw new Error("Chave de API (API_KEY) não configurada no ambiente.");
+    console.error("ERRO: API_KEY não encontrada em process.env");
+    throw new Error("Configuração ausente: Chave de API não detectada.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    const prepareImagePart = (base64: string) => {
+    // Preparar as partes de imagem
+    const imageParts = photos.map(base64 => {
       const match = base64.match(/^data:(image\/[a-zA-Z0-9\-\+\.]+);base64,/);
       const mimeType = match ? match[1] : "image/jpeg";
       const data = base64.includes(',') ? base64.split(',')[1] : base64;
-      return { inlineData: { mimeType, data } };
-    };
+      return {
+        inlineData: { mimeType, data }
+      };
+    });
 
-    // Usando gemini-3-flash-preview para maior velocidade e estabilidade em OCR
+    console.log("Enviando requisição ao modelo gemini-3-flash-preview...");
+
+    // Chamada otimizada seguindo estritamente os novos padrões do SDK
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: [
-        {
-          parts: [
-            { text: "Analise as imagens desta embalagem industrial e extraia os dados técnicos em JSON puro. \n\nREGRAS:\n1. MOLDAGEM: 'TERMOFORMADO' ou 'INJETADO'.\n2. FORMATO: 'REDONDO', 'RETANGULAR', 'QUADRADO' ou 'OVAL'.\n3. FABRICANTE: Verifique logotipos no fundo da peça (ex: FIBRASA, BOMIX, RIOPLASTIC).\n4. CNPJ: Extraia todos os CNPJs encontrados." },
-            ...photos.map(prepareImagePart)
-          ]
-        }
-      ],
+      contents: {
+        parts: [
+          { text: "Analise estas imagens de embalagem industrial. Extraia: Razão Social da empresa, todos os CNPJs visíveis, Marca do produto, Descrição técnica, Fabricante da embalagem plástica (ex: Fibrasa, Bomix), Moldagem (TERMOFORMADO ou INJETADO) e Formato (REDONDO, RETANGULAR, etc)." },
+          ...imageParts
+        ]
+      },
       config: {
-        systemInstruction: "Você é um auditor técnico de embalagens. Responda APENAS com um objeto JSON válido contendo: razaoSocial, cnpj (array), marca, descricaoProduto, conteudo, endereco, cep, telefone, site, fabricanteEmbalagem, moldagem, formatoEmbalagem, tipoEmbalagem, modeloEmbalagem. Use 'N/I' para valores não encontrados.",
+        systemInstruction: "Você é um especialista em OCR industrial. Extraia dados técnicos e responda EXCLUSIVAMENTE em formato JSON puro. Se não encontrar um dado, use 'N/I'.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -57,10 +61,14 @@ export async function extractDataFromPhotos(photos: string[]): Promise<Extracted
       }
     });
 
-    const text = response.text || "";
-    if (!text) throw new Error("A IA retornou uma resposta vazia.");
-    
-    const raw = JSON.parse(text.trim());
+    const textOutput = response.text;
+    console.log("Resposta bruta da IA recebida:", textOutput ? "Sucesso" : "Vazia");
+
+    if (!textOutput) {
+      throw new Error("A IA não retornou nenhum texto processável.");
+    }
+
+    const raw = JSON.parse(textOutput.trim());
     
     return {
       razaoSocial: raw.razaoSocial || "N/I",
@@ -79,9 +87,9 @@ export async function extractDataFromPhotos(photos: string[]): Promise<Extracted
       modeloEmbalagem: raw.modeloEmbalagem || "N/I",
       dataLeitura: new Date().toLocaleString('pt-BR')
     };
+
   } catch (error: any) {
-    console.error("DETALHES DO ERRO IA:", error);
-    const errorMsg = error.message || "Erro desconhecido na API";
-    throw new Error(`Erro Gemini: ${errorMsg}`);
+    console.error("FALHA NA EXTRAÇÃO GEMINI:", error);
+    throw new Error(`Falha na análise: ${error.message || "Erro desconhecido na IA"}`);
   }
 }
